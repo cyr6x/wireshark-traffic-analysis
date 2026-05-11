@@ -1,5 +1,5 @@
 # Wireshark Traffic Analysis Lab
-**Malicious PCAP Analysis | IOC Extraction | Threat Brief** 
+**Malicious PCAP Analysis | IOC Extraction | Threat Brief**
 
 > A hands-on cybersecurity lab demonstrating network traffic analysis using Wireshark to identify malicious activity, extract Indicators of Compromise (IOCs), and produce a structured threat brief — simulating the daily workflow of a SOC Tier-1 analyst.
 
@@ -7,7 +7,7 @@
 
 ## Why This Matters
 
-Network traffic analysis is a core SOC analyst skill. When an alert fires in a SIEM, analysts must pivot into raw packet data to confirm whether it’s a true positive, identify what the attacker did, and extract IOCs to block further damage. This lab replicates that workflow end-to-end using real-world malicious PCAPs.
+Network traffic analysis is a core SOC analyst skill. When an alert fires in a SIEM, analysts must pivot into raw packet data to confirm whether it’s a true positive, identify what the attacker did, and extract IOCs to block further damage. This lab replicates that workflow end-to-end using a real-world malicious PCAP containing active C2 traffic.
 
 ---
 
@@ -16,85 +16,83 @@ Network traffic analysis is a core SOC analyst skill. When an alert fires in a S
 | Component | Details |
 |---|---|
 | **Analysis Tool** | Wireshark 4.x |
-| **PCAP Source** | [malware-traffic-analysis.net](https://www.malware-traffic-analysis.net/tutorials/index.html) |
+| **PCAP Source** | [malware-traffic-analysis.net](https://www.malware-traffic-analysis.net/training-exercises.html) — 2026-02-28 exercise |
 | **Platform** | Kali Linux (isolated VM) |
 | **Network** | Host-only / isolated — no live malicious traffic |
 
 ---
 
-## Objectives
+## Analysis Summary
 
-- Identify infected hosts from raw packet captures
-- Extract IOCs: malicious IPs, domains, URLs, and user-agents
-- Reconstruct the attack timeline from packet timestamps
-- Produce a threat brief matching real SOC deliverable standards
-- Map findings to MITRE ATT&CK techniques
+| Field | Value |
+|---|---|
+| **PCAP File** | 2026-02-28-traffic-analysis-exercise.pcap |
+| **Infected Host IP** | 10.2.28.88 |
+| **Infected Host MAC** | 00:19:d1:b2:4d:ad (Intel NIC) |
+| **Infected Host OS** | Windows NT (from server response header) |
+| **Malware Family** | NetSupport RAT |
+| **C2 IP** | 45.131.214.85 |
+| **C2 URL** | http://45.131.214.85/fakeurl.htm |
+| **VirusTotal Detections** | 13/93 vendors flagged as malicious |
+| **C2 Behavior** | Periodic HTTP POST beaconing every ~60 seconds |
+
+---
+
+## Attack Timeline
+
+| Time (Relative) | Event |
+|---|---|
+| 0.000000s | DHCP Discover — infected host requests IP from network |
+| 4.306185s | DHCP ACK — host assigned IP 10.2.28.88 by server 10.2.28.1 |
+| ~9188s | First HTTP POST to 45.131.214.85/fakeurl.htm observed |
+| ~9188s+ | Repeated C2 beaconing begins — POST every ~60 seconds |
+| Ongoing | Encoded data (`CMD=ENCD`, `DATA=...`) sent back to infected host |
+
+---
+
+## Indicators of Compromise (IOCs)
+
+| Type | Value | Notes |
+|---|---|---|
+| **C2 IP** | 45.131.214.85 | 13/93 vendors flagged malicious on VirusTotal |
+| **C2 URL** | http://45.131.214.85/fakeurl.htm | NetSupport RAT callback URL |
+| **User-Agent** | `NetSupport Manager/1.3` | Hardcoded RAT user-agent string |
+| **C2 Commands** | `CMD=POLL`, `CMD=ENCD` | NetSupport RAT polling and encoded command protocol |
+| **Server Header** | `NetSupport Gateway/1.92 (Windows NT)` | Attacker’s C2 server fingerprint |
+| **Infected Host IP** | 10.2.28.88 | Internal host performing all C2 callbacks |
+| **Infected Host MAC** | 00:19:d1:b2:4d:ad | Intel NIC — from Ethernet frame headers |
 
 ---
 
 ## Wireshark Filters Used
 
 ```wireshark
-# Identify all HTTP requests (domains contacted)
+# Identify all HTTP requests
 http.request
 
-# All DNS lookups (spot DGA/C2 domains)
+# All DNS lookups
 dns
 
-# Filter all traffic to/from a suspicious IP
-ip.addr == <suspicious-IP>
+# Isolate all C2 traffic
+ip.addr == 45.131.214.85
 
-# Detect SYN scans / connection attempts
+# Detect SYN scans
 tcp.flags.syn == 1 && tcp.flags.ack == 0
 
-# Hunt for credentials in plaintext
-frame contains "password"
-
-# Export HTTP objects (downloaded payloads)
-# File > Export Objects > HTTP
+# Follow HTTP Stream (right-click any HTTP packet)
+# Reveals: User-Agent, CMD=POLL, CMD=ENCD, DATA payload
 ```
 
 ---
 
-## Analysis Summary
+## What NetSupport RAT Does
 
-> 📌 **Fill this in during your analysis**
+NetSupport RAT is a legitimate remote administration tool (NetSupport Manager) abused by threat actors as malware. Once installed on a victim machine it:
 
-| Field | Value |
-|---|---|
-| **PCAP File** | *(filename from malware-traffic-analysis.net)* |
-| **Infection Date/Time** | *(from Wireshark packet timestamps)* |
-| **Infected Host IP** | *(e.g. 192.168.1.x)* |
-| **Infected Host MAC** | *(from ARP/DHCP packets)* |
-| **Infected Host OS** | *(from User-Agent string or DHCP hostname)* |
-| **Malware Family** | *(identified from tutorial answer key)* |
-
----
-
-## Attack Timeline
-
-> 📌 **Reconstruct from packet timestamps**
-
-| Time (UTC) | Event |
-|---|---|
-| HH:MM:SS | Infected host makes DNS lookup for suspicious domain |
-| HH:MM:SS | HTTP GET request to malicious URL — payload download begins |
-| HH:MM:SS | C2 beacon observed (periodic outbound connections) |
-| HH:MM:SS | Data exfiltration or lateral movement detected |
-
----
-
-## Indicators of Compromise (IOCs)
-
-> 📌 **Extract from your PCAP analysis**
-
-| Type | Value | Notes |
-|---|---|---|
-| **IP Address** | x.x.x.x | C2 server / malicious host |
-| **Domain** | malicious-domain.com | Resolved in DNS query |
-| **URL** | http://domain/path/payload.exe | Payload delivery URL |
-| **User-Agent** | Mozilla/4.0 (unusual) | Malware-specific UA string |
-| **File Hash (MD5)** | *(if payload exported)* | Exported HTTP object |
+- **Beacons** to the C2 server over HTTP POST at regular intervals (`CMD=POLL`)
+- **Receives encoded commands** from the attacker (`CMD=ENCD` + `DATA=` field)
+- **Provides full remote control** — keylogging, screen capture, file transfer, command execution
+- **Blends in** by using a legitimate tool’s User-Agent and HTTP traffic pattern, making it harder to detect without deep packet inspection
 
 ---
 
@@ -102,82 +100,73 @@ frame contains "password"
 
 | Tactic | Technique | ID |
 |---|---|---|
-| Initial Access | Drive-by Compromise | T1189 |
+| Initial Access | Phishing / Drive-by Compromise | T1566 / T1189 |
 | Execution | User Execution: Malicious File | T1204.002 |
+| Persistence | Remote Access Software | T1219 |
 | Command & Control | Application Layer Protocol: Web Protocols | T1071.001 |
+| Command & Control | Non-Standard Port (HTTP on 80 to external IP) | T1571 |
 | Exfiltration | Exfiltration Over C2 Channel | T1041 |
-
-> Map your specific findings to [attack.mitre.org](https://attack.mitre.org) and replace/add rows as needed.
 
 ---
 
 ## Screenshots
 
-> Add screenshots to the `/screenshots` folder and reference them below.
-
 ```
 screenshots/
-├── 01-http-requests.png       # http.request filter results
-├── 02-dns-lookups.png         # Suspicious DNS queries
-├── 03-c2-traffic.png          # C2 beacon traffic
-├── 04-ioc-summary.png         # IOC list / filter results
-└── 05-exported-objects.png    # HTTP exported objects (payloads)
+├── 01-dhcp-host-ip.png          # DHCP ACK assigning 10.2.28.88
+├── 02-dns-queries.png           # DNS filter results
+├── 03-http-post-c2.png          # ip.addr == 45.131.214.85 repeated POST traffic
+├── 04-follow-http-stream.png    # HTTP stream showing CMD=POLL, User-Agent, DATA
+└── 05-virustotal-ip-check.png   # VirusTotal result: 13/93 vendors flagged
 ```
 
-> ⚠️ **Do not push PCAP files** — they contain live malicious content. Reference by filename and link to source only.
-
----
-
-## Tools & Resources
-
-| Tool | Purpose | Link |
-|---|---|---|
-| Wireshark | Packet capture analysis | [wireshark.org](https://www.wireshark.org) |
-| malware-traffic-analysis.net | Real-world malicious PCAPs + tutorials | [Link](https://www.malware-traffic-analysis.net/tutorials/index.html) |
-| MITRE ATT&CK Navigator | Technique mapping | [attack.mitre.org](https://attack.mitre.org) |
-| VirusTotal | IOC reputation checks | [virustotal.com](https://www.virustotal.com) |
+> ⚠️ **PCAP not included** — contains live malicious content. Source: [malware-traffic-analysis.net](https://www.malware-traffic-analysis.net/training-exercises.html)
 
 ---
 
 ## Defender Takeaways
 
-### What the malware was doing
-- Contacted external C2 infrastructure over HTTP (unencrypted, detectable)
-- Used DNS to resolve randomised or fast-flux domains (DGA behaviour)
-- Downloaded a secondary payload via HTTP GET
+### What the attacker was doing
+- Infected host was running NetSupport RAT, silently beaconing to attacker C2 every ~60 seconds
+- Encoded commands were being sent from C2 to the infected machine — full remote control established
+- Traffic used legitimate-looking HTTP on port 80, making it blend with normal web traffic
 
-### What a SOC analyst should alert on
-- **DNS anomalies** — high-entropy domain names, NX domain storms, unusually high DNS query rates
-- **Beaconing patterns** — regular periodic outbound connections at fixed intervals to the same IP
-- **Unusual User-Agent strings** — malware often uses hardcoded or outdated UA strings
-- **HTTP downloads without a referrer** — payload pulls often have no `Referer` header
+### How a SOC analyst detects this
+| Signal | Detection Logic |
+|---|---|
+| **Unusual User-Agent** | `NetSupport Manager/1.3` is never legitimate browser traffic — alert on this string |
+| **Beaconing pattern** | Same external IP hit via POST every ~60s — SIEM rule: >10 POSTs to same external IP/hour |
+| **`/fakeurl.htm` path** | No legitimate site uses this path — alert on HTTP requests containing `fakeurl` |
+| **No DNS resolution before connection** | Host connected directly to IP, bypassing DNS — flag direct-IP HTTP outbound connections |
+| **`CMD=POLL` in POST body** | Content inspection rule in web proxy or IDS/IPS |
 
-### Controls that would prevent / detect this
+### Controls that would prevent this
 | Control | How It Helps |
 |---|---|
-| **DNS Filtering** (e.g. Cisco Umbrella) | Blocks C2 domain resolution before connection is made |
-| **Web Proxy / SSL Inspection** | Intercepts and inspects HTTP/HTTPS traffic for malicious payloads |
-| **EDR (e.g. CrowdStrike, Defender)** | Detects payload execution on endpoint before C2 callback |
-| **SIEM Correlation Rules** | Correlates DNS + HTTP + process creation events into a single alert |
-| **Network Segmentation** | Limits blast radius if a host is compromised |
+| **Web Proxy + SSL Inspection** | Intercepts HTTP/S traffic, can block unknown external IPs and inspect POST bodies |
+| **EDR (e.g. CrowdStrike, Defender for Endpoint)** | Detects NetSupport Manager running outside approved software list |
+| **Application Whitelisting** | Blocks unauthorized executables — NetSupport Manager not on the approved list = blocked |
+| **Egress Filtering** | Block outbound HTTP to raw IPs (no domain) — eliminates this entire C2 channel |
+| **SIEM Correlation Rule** | `User-Agent contains NetSupport` OR `POST to external IP > 10/hour` → P1 alert |
 
 ---
 
 ## Academic & Professional Context
 
-This lab maps directly to:
-- **CompTIA Security+ SY0-701** — Domain 4.9 (Given a scenario, use data sources to support an investigation)
+- **CompTIA Security+ SY0-701** — Domain 4.9: Use data sources to support an investigation
 - **NIST SP 800-61** — Incident Response Phase 2: Detection & Analysis
-- **SOC Analyst Tier-1 duties** — Alert triage, PCAP review, IOC extraction, initial threat brief
+- **SOC Tier-1 duties** — Alert triage, PCAP review, IOC extraction, threat brief production
 
 ---
 
 ## Status
 
 - [x] Lab environment configured
-- [x] Wireshark filters documented
-- [ ] PCAP downloaded and analysed
-- [ ] IOCs extracted and documented
+- [x] PCAP downloaded and analysed
+- [x] Infected host identified (10.2.28.88)
+- [x] C2 traffic isolated and confirmed (45.131.214.85)
+- [x] HTTP stream followed — NetSupport RAT confirmed
+- [x] IOCs extracted and documented
+- [x] VirusTotal verification completed (13/93)
+- [x] MITRE ATT&CK mapping finalised
 - [ ] Screenshots added to `/screenshots`
-- [ ] Threat brief completed
-- [ ] MITRE ATT&CK mapping finalised
