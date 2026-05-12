@@ -1,13 +1,7 @@
 # Wireshark Traffic Analysis Lab
 **Malicious PCAP Analysis | IOC Extraction | Threat Brief**
 
-> A hands-on cybersecurity lab demonstrating network traffic analysis using Wireshark to identify malicious activity, extract Indicators of Compromise (IOCs), and produce a structured threat brief — simulating the daily workflow of a SOC Tier-1 analyst.
-
----
-
-## Why This Matters
-
-Network traffic analysis is a core SOC analyst skill. When an alert fires in a SIEM, analysts must pivot into raw packet data to confirm whether it’s a true positive, identify what the attacker did, and extract IOCs to block further damage. This lab replicates that workflow end-to-end using a real-world malicious PCAP containing active C2 traffic.
+> Hands-on network forensics lab using Wireshark to identify malicious activity, extract Indicators of Compromise (IOCs), and produce a structured threat brief — simulating the workflow of a SOC Tier-1 analyst.
 
 ---
 
@@ -18,7 +12,19 @@ Network traffic analysis is a core SOC analyst skill. When an alert fires in a S
 | **Analysis Tool** | Wireshark 4.x |
 | **PCAP Source** | [malware-traffic-analysis.net](https://www.malware-traffic-analysis.net/training-exercises.html) — 2026-02-28 exercise |
 | **Platform** | Kali Linux (isolated VM) |
-| **Network** | Host-only / isolated — no live malicious traffic |
+| **Network** | Host-only — no live malicious traffic |
+
+> ⚠️ All analysis performed against a locally stored PCAP file. No live malicious systems were contacted.
+
+---
+
+## Objectives
+
+- Load and navigate a real-world malicious PCAP in Wireshark
+- Identify the infected host via DHCP and ARP analysis
+- Isolate C2 traffic using targeted display filters
+- Follow HTTP streams to extract malware behaviour
+- Produce an IOC table and threat brief mapped to MITRE ATT&CK
 
 ---
 
@@ -34,7 +40,65 @@ Network traffic analysis is a core SOC analyst skill. When an alert fires in a S
 | **C2 IP** | 45.131.214.85 |
 | **C2 URL** | http://45.131.214.85/fakeurl.htm |
 | **VirusTotal Detections** | 13/93 vendors flagged as malicious |
-| **C2 Behavior** | Periodic HTTP POST beaconing every ~60 seconds |
+| **C2 Behaviour** | Periodic HTTP POST beaconing every ~60 seconds |
+
+---
+
+## Step 1 — Identify the Infected Host (DHCP)
+
+Filter: `bootp` or `dhcp`
+
+The DHCP ACK packet reveals the infected host was assigned IP `10.2.28.88` by the local DHCP server at `10.2.28.1`. MAC address `00:19:d1:b2:4d:ad` confirms an Intel NIC.
+
+![DHCP — Infected Host IP Assignment](screenshots/dhcp.png)
+
+---
+
+## Step 2 — Inspect DNS Queries
+
+Filter: `dns`
+
+DNS queries show which domains the infected host attempted to resolve before and after infection. Absence of DNS lookups before direct-IP C2 connections is itself a red flag.
+
+![DNS Query Traffic](screenshots/dns.png)
+
+---
+
+## Step 3 — Isolate HTTP Requests
+
+Filter: `http.request`
+
+All outbound HTTP requests from the infected host are listed. The repeated POST requests to `45.131.214.85/fakeurl.htm` stand out immediately — a legitimate host would not repeatedly POST to a raw external IP.
+
+![HTTP Requests — C2 Traffic Visible](screenshots/http.request.png)
+
+---
+
+## Step 4 — Filter by C2 IP
+
+Filter: `ip.addr == 45.131.214.85`
+
+Isolating all traffic to and from the C2 IP confirms the beaconing pattern — repeated POST requests every ~60 seconds, consistent with NetSupport RAT's polling behaviour.
+
+![C2 IP Traffic — Repeated POSTs](screenshots/ip.addr.jpg)
+
+---
+
+## Step 5 — Follow HTTP Stream (User-Agent & Commands)
+
+Right-click any HTTP packet → **Follow > HTTP Stream**
+
+The stream reveals the hardcoded NetSupport RAT `User-Agent` string and the C2 command protocol (`CMD=POLL`, `CMD=ENCD`, `DATA=`). This confirms malware family and active C2 communication.
+
+![User-Agent — NetSupport RAT Fingerprint](screenshots/user%20agent.png)
+
+---
+
+## Step 6 — VirusTotal Verification
+
+The C2 IP `45.131.214.85` was checked on [VirusTotal](https://www.virustotal.com) — **13 out of 93 vendors** flagged it as malicious, confirming the C2 is a known threat infrastructure.
+
+![VirusTotal — 13/93 Vendors Flagged](screenshots/virustotal.jpg)
 
 ---
 
@@ -42,11 +106,11 @@ Network traffic analysis is a core SOC analyst skill. When an alert fires in a S
 
 | Time (Relative) | Event |
 |---|---|
-| 0.000000s | DHCP Discover — infected host requests IP from network |
-| 4.306185s | DHCP ACK — host assigned IP 10.2.28.88 by server 10.2.28.1 |
-| ~9188s | First HTTP POST to 45.131.214.85/fakeurl.htm observed |
-| ~9188s+ | Repeated C2 beaconing begins — POST every ~60 seconds |
-| Ongoing | Encoded data (`CMD=ENCD`, `DATA=...`) sent back to infected host |
+| 0.000000s | DHCP Discover — infected host requests IP |
+| 4.306185s | DHCP ACK — host assigned 10.2.28.88 |
+| ~9188s | First HTTP POST to 45.131.214.85/fakeurl.htm |
+| ~9188s+ | C2 beaconing begins — POST every ~60 seconds |
+| Ongoing | Encoded data (`CMD=ENCD`, `DATA=...`) sent to infected host |
 
 ---
 
@@ -54,11 +118,11 @@ Network traffic analysis is a core SOC analyst skill. When an alert fires in a S
 
 | Type | Value | Notes |
 |---|---|---|
-| **C2 IP** | 45.131.214.85 | 13/93 vendors flagged malicious on VirusTotal |
+| **C2 IP** | 45.131.214.85 | 13/93 vendors flagged on VirusTotal |
 | **C2 URL** | http://45.131.214.85/fakeurl.htm | NetSupport RAT callback URL |
 | **User-Agent** | `NetSupport Manager/1.3` | Hardcoded RAT user-agent string |
-| **C2 Commands** | `CMD=POLL`, `CMD=ENCD` | NetSupport RAT polling and encoded command protocol |
-| **Server Header** | `NetSupport Gateway/1.92 (Windows NT)` | Attacker’s C2 server fingerprint |
+| **C2 Commands** | `CMD=POLL`, `CMD=ENCD` | Polling and encoded command protocol |
+| **Server Header** | `NetSupport Gateway/1.92 (Windows NT)` | Attacker C2 server fingerprint |
 | **Infected Host IP** | 10.2.28.88 | Internal host performing all C2 callbacks |
 | **Infected Host MAC** | 00:19:d1:b2:4d:ad | Intel NIC — from Ethernet frame headers |
 
@@ -67,32 +131,32 @@ Network traffic analysis is a core SOC analyst skill. When an alert fires in a S
 ## Wireshark Filters Used
 
 ```wireshark
-# Identify all HTTP requests
-http.request
+# DHCP — identify infected host
+bootp
 
-# All DNS lookups
+# DNS lookups
 dns
 
-# Isolate all C2 traffic
+# All HTTP requests
+http.request
+
+# Isolate C2 traffic
 ip.addr == 45.131.214.85
 
-# Detect SYN scans
+# SYN scan detection
 tcp.flags.syn == 1 && tcp.flags.ack == 0
-
-# Follow HTTP Stream (right-click any HTTP packet)
-# Reveals: User-Agent, CMD=POLL, CMD=ENCD, DATA payload
 ```
 
 ---
 
 ## What NetSupport RAT Does
 
-NetSupport RAT is a legitimate remote administration tool (NetSupport Manager) abused by threat actors as malware. Once installed on a victim machine it:
+NetSupport RAT is a legitimate remote administration tool (NetSupport Manager) abused by threat actors. Once installed it:
 
 - **Beacons** to the C2 server over HTTP POST at regular intervals (`CMD=POLL`)
 - **Receives encoded commands** from the attacker (`CMD=ENCD` + `DATA=` field)
 - **Provides full remote control** — keylogging, screen capture, file transfer, command execution
-- **Blends in** by using a legitimate tool’s User-Agent and HTTP traffic pattern, making it harder to detect without deep packet inspection
+- **Blends in** using a legitimate tool's User-Agent and standard HTTP traffic, evading shallow inspection
 
 ---
 
@@ -104,49 +168,29 @@ NetSupport RAT is a legitimate remote administration tool (NetSupport Manager) a
 | Execution | User Execution: Malicious File | T1204.002 |
 | Persistence | Remote Access Software | T1219 |
 | Command & Control | Application Layer Protocol: Web Protocols | T1071.001 |
-| Command & Control | Non-Standard Port (HTTP on 80 to external IP) | T1571 |
+| Command & Control | Non-Standard Port (HTTP to external IP) | T1571 |
 | Exfiltration | Exfiltration Over C2 Channel | T1041 |
-
----
-
-## Screenshots
-
-```
-screenshots/
-├── 01-dhcp-host-ip.png          # DHCP ACK assigning 10.2.28.88
-├── 02-dns-queries.png           # DNS filter results
-├── 03-http-post-c2.png          # ip.addr == 45.131.214.85 repeated POST traffic
-├── 04-follow-http-stream.png    # HTTP stream showing CMD=POLL, User-Agent, DATA
-└── 05-virustotal-ip-check.png   # VirusTotal result: 13/93 vendors flagged
-```
-
-> ⚠️ **PCAP not included** — contains live malicious content. Source: [malware-traffic-analysis.net](https://www.malware-traffic-analysis.net/training-exercises.html)
 
 ---
 
 ## Defender Takeaways
 
-### What the attacker was doing
-- Infected host was running NetSupport RAT, silently beaconing to attacker C2 every ~60 seconds
-- Encoded commands were being sent from C2 to the infected machine — full remote control established
-- Traffic used legitimate-looking HTTP on port 80, making it blend with normal web traffic
-
-### How a SOC analyst detects this
+### SOC Detection Signals
 | Signal | Detection Logic |
 |---|---|
-| **Unusual User-Agent** | `NetSupport Manager/1.3` is never legitimate browser traffic — alert on this string |
-| **Beaconing pattern** | Same external IP hit via POST every ~60s — SIEM rule: >10 POSTs to same external IP/hour |
+| **Unusual User-Agent** | `NetSupport Manager/1.3` is never browser traffic — alert on this string |
+| **Beaconing pattern** | Same external IP hit via POST every ~60s — SIEM rule: >10 POSTs/hour to same external IP |
 | **`/fakeurl.htm` path** | No legitimate site uses this path — alert on HTTP requests containing `fakeurl` |
-| **No DNS resolution before connection** | Host connected directly to IP, bypassing DNS — flag direct-IP HTTP outbound connections |
+| **Direct-IP HTTP** | Host connected to raw IP, no prior DNS — flag all direct-IP outbound HTTP |
 | **`CMD=POLL` in POST body** | Content inspection rule in web proxy or IDS/IPS |
 
-### Controls that would prevent this
+### Preventive Controls
 | Control | How It Helps |
 |---|---|
-| **Web Proxy + SSL Inspection** | Intercepts HTTP/S traffic, can block unknown external IPs and inspect POST bodies |
-| **EDR (e.g. CrowdStrike, Defender for Endpoint)** | Detects NetSupport Manager running outside approved software list |
-| **Application Whitelisting** | Blocks unauthorized executables — NetSupport Manager not on the approved list = blocked |
-| **Egress Filtering** | Block outbound HTTP to raw IPs (no domain) — eliminates this entire C2 channel |
+| **Web Proxy + SSL Inspection** | Intercepts traffic, blocks unknown external IPs, inspects POST bodies |
+| **EDR** | Detects NetSupport Manager running outside approved software list |
+| **Application Whitelisting** | Blocks unauthorized executables — NetSupport not on approved list = blocked |
+| **Egress Filtering** | Block outbound HTTP to raw IPs — eliminates this entire C2 channel |
 | **SIEM Correlation Rule** | `User-Agent contains NetSupport` OR `POST to external IP > 10/hour` → P1 alert |
 
 ---
@@ -169,4 +213,4 @@ screenshots/
 - [x] IOCs extracted and documented
 - [x] VirusTotal verification completed (13/93)
 - [x] MITRE ATT&CK mapping finalised
-- [ ] Screenshots added to `/screenshots`
+- [x] Screenshots embedded inline in README
